@@ -1,0 +1,326 @@
+
+Sub Aerodynamic_Correction()
+'code is taken from ATV5DHV.BAS
+'same varible names used
+
+'modifictions
+     'replaced akh with akh in steady arms correction
+     'rewrote steadyarm compensation to allow for changinging force with angle
+
+
+R = raw.DEG / 57.296
+
+
+
+If glider.sal >= 1 Then
+     'Cell Aerodynamic correction, steadyarms, multiple use
+     'force generated on top meter of arm
+     fcv1 = Cos(R) * 0.006 * (raw.AKH * raw.AKH) * 1 * 0.9
+     'force generated on bottom of arm
+     fcv2 = Cos(R) * 0.004 * (raw.AKH * raw.AKH) * (glider.sal - 1) * 0.9
+End If
+
+
+
+'drag proportion
+dcv = Cos(R) * (fcv1 + fcv2)
+'lift proprtion
+lcv = Sin(R) * (fcv1 + fcv2)
+'Moment due to top meter of arms
+mcv1 = 0.5 * fcv1
+'moment due to extended part of arms
+mcv2 = ((0.5 * (glider.sal - 1)) + 1) * fcv2
+'Pitch cell value as a result of above moments
+pcv = (mcv1 + mcv2) / (0.3 * Cos(R))
+
+
+'LIFT CELL
+
+'Aerodynamic correction, steadyarms
+corr.LC = pcv + lcv
+
+
+'PITCH CELL
+'Aerodynamic correction, steadyarms
+corr.PC = -pcv
+
+
+'DRAG CELL
+'Aerodynamic compensation, steadyarms
+corr.DC = -dcv
+
+End Sub
+
+
+
+
+
+
+
+
+
+Sub Bits_to_Raw_Values()
+
+'code is taken from ATV5DHV.BAS
+'same varible names used
+
+'modifictions
+     'changed sign on drag
+
+
+'performs basic conversion from the elexor value:
+     'ab, nb, gb, lb, pb, db
+'to the uncompensated but basicly correct values:
+     'akh, deg, ms, lc ,pc ,dc
+'which represent speed, degrees, acceleration, lift force, pitch force, drag force
+
+
+   value.AKH = Sqr(Abs(elexor.AB))
+   value.DEG = -elexor.NB / factors.DEG
+   value.MS = elexor.GB / factors.MS
+   value.LC = elexor.LB / factors.LC
+   value.PC = elexor.PB / factors.PC
+   value.DC = -((elexor.DB / factors.DC) / 2)
+
+
+End Sub
+
+
+
+
+
+
+Sub Convert_LPD_to_LDM()
+
+
+
+'code is taken from ATV5DHV.BAS
+'same varible names used
+
+'modifictions
+     'xoffset and zoffset added
+
+
+R = raw.DEG / 57.296
+
+
+
+'Resultant force
+der.Lift = raw.PC + raw.LC
+der.Drag = raw.DC
+der.Force = Sqr((der.Lift * der.Lift) + (der.Drag * der.Drag))
+If der.Lift < 0 Then der.Force = -der.Force
+
+
+'Moment
+'With pivot point to reference point dz offset correction
+'working in horozontal plane
+
+Rinc = R + glider.offsetangle / 57.296
+
+'offsets  
+'0.1 is pivot point to reference point dz
+
+totXoffset = (glider.xoffset * Cos(-Rinc)) - ((glider.zoffset) * Sin(-Rinc))
+der.Moment = raw.LC * (totXoffset + (Sin(R) * 0.1)) + raw.PC * (-0.3 * Cos(R) + (Sin(R) * 0.1) + totXoffset)
+
+
+End Sub
+
+
+
+
+
+Function convert_to_coeff()
+
+
+divfact = 0.04726 * raw.AKH * raw.AKH * glider.area
+If divfact = 0 Then convert_to_coeff = 1: Exit Function
+If glider.span = 0 Then convert_to_coeff = 1: Exit Function
+
+coeff.Moment = datain.Moment / (divfact * glider.area / glider.span)
+coeff.Lift = datain.Lift / divfact
+coeff.Drag = datain.Drag / divfact
+coeff.Force = datain.Force / divfact
+
+
+End Function
+
+
+
+
+
+
+Sub Dynamic_Correction()
+
+
+'code is taken from ATV5DHV.BAS
+'same varible names used
+
+'modifictions
+     'using head angles instead of head + ri
+     'subject correction swapped +/-
+     'added keel angles
+
+R = raw.DEG / 57.296
+Rinc = R + glider.offsetangle / 57.296
+
+
+'offsets
+
+
+DXRR = (glider.CoG_DX * Cos(-Rinc)) - (glider.CoG_DZ * Sin(-Rinc))
+DZRR = (glider.CoG_DZ * Sin(-Rinc)) + (glider.CoG_DX * Cos(-Rinc))
+
+
+
+
+
+'LIFT CELL
+'Dynamic correction, subject
+corr.LC = -(glider.mass * raw.MS * DZRR) / (0.3 * Cos(R))
+'Dynamic correction, steadyarms
+corr.LC = corr.LC + (8.8 * raw.MS * glider.sal)
+
+
+'PITCH CELL
+'Dynamic correction, subject
+corr.PC = (glider.mass * raw.MS * DZRR) / (0.3 * Cos(R))
+'Dynamic correction, steadyarms
+corr.PC = corr.PC - (8.8 * raw.MS * glider.sal)
+
+
+
+
+'DRAG CELL
+'Dynamic correction, subject
+corr.DC = -glider.mass * raw.MS
+'Dynamic compensation, head
+corr.DC = corr.DC - (5.26 * raw.MS)
+'Dynamic compensation, steadyarms
+corr.DC = corr.DC - (5.5 * raw.MS)
+
+
+
+End Sub
+
+
+
+
+
+Sub CoGlocation()
+
+
+'modifictions
+     'removed references to ri, all measurements now relative to head
+     'add dzz correction for steadyarms
+     'changed to trigometric equations
+     'added compensation for steady arm cog
+
+
+'proceedure determines subject Mass and CG location
+
+
+Roa = glider.offsetangle / 57.296
+
+If glider.sal > 0 Then
+     zs = -(0.48 * glider.sal) ' vertical position of steady arm cog
+     ws = 54 'wt of steadyarms in newtons
+End If
+
+
+DEG1 = set1.DEG
+L1 = set1.LC
+P1 = set1.PC
+
+
+DEG2 = set2.DEG
+L2 = set2.LC
+P2 = set2.PC
+
+Force = ((L1 + P1) + (L2 + P2)) / 2
+glider.mass = -Force / 9.814
+
+Force = Force - ws
+M1 = P1 * 0.3 * Cos(DEG1 / 57.296)
+M2 = P2 * 0.3 * Cos(DEG2 / 57.296)
+R1 = DEG1 / 57.296
+R2 = DEG2 / 57.296
+arm1 = M1 / Force
+arm2 = M2 / Force
+
+fact = Cos(R1) * Sin(R2) - Sin(R1) * Cos(R2)
+
+DX = (Sin(R2) * arm1 - Sin(R1) * arm2) / fact
+DZ = -(-arm2 * Cos(R1) + arm1 * Cos(R2)) / fact
+
+
+
+
+'compensate for steadyarms in zplane
+If glider.sal > 0 Then
+     DZ = (DZ * (-Force) - zs * ws) / -(Force + ws)
+End If
+
+'Subtract offsets pivot point to reference point (.1 m, Z plane)
+DZ = DZ - 0.1
+
+'convert to keel axis
+glider.CoG_DX = Cos(Roa) * DX - Sin(Roa) * DZ
+glider.CoG_DZ = Sin(Roa) * DX + Cos(Roa) * DZ
+
+End Sub
+
+
+
+
+
+
+Sub Static_Correction()
+
+
+'code is taken from ATV5DHV.BAS
+'same varible names used
+
+'modifictions
+     'changed wt from - to + to enhance readability
+
+
+R = raw.DEG / 57.296
+Rinc = R + glider.offsetangle / 57.296
+
+
+'offsets
+
+
+DXRR = (glider.CoG_DX * Cos(-Rinc)) - (glider.CoG_DZ * Sin(-Rinc))
+'DZRR = (glider.CoG_DZ * sin(-Rinc)) + (glider.CoG_DX * cos(-Rinc))
+
+
+
+
+wt = glider.mass * 9.81
+
+
+
+'LIFT CELL
+'Static correction, subject
+corr.LC = wt - (wt * DXRR) / (0.3 * Cos(R))
+'Static correction, steadyarms
+corr.LC = corr.LC + (((0.48 * glider.sal) * Sin(R) * 54) / (0.3 * Cos(R)))
+
+'steady arm correction looks wrong, but is because the rig zero is taken with the steady arms installed.
+
+
+
+'PITCH CELL
+'Static correction, subject
+corr.PC = (wt * DXRR) / (0.3 * Cos(R))
+'Static correction, steadyarms
+corr.PC = corr.PC - (((0.48 * glider.sal) * Sin(R) * 54) / (0.3 * Cos(R)))
+
+
+
+End Sub
+
+
